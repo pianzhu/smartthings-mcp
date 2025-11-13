@@ -416,6 +416,302 @@ class Location(ILocation):
 
         return result
 
+    def search_devices(self, query: str, limit: int = 5) -> List[dict]:
+        """
+        Fuzzy search devices by label, room name, or capability.
+        Returns minimal information to reduce token usage.
+
+        Args:
+            query: Natural language search query (e.g., "客厅的灯", "温度传感器")
+            limit: Maximum number of results to return
+
+        Returns:
+            List of compressed device info dictionaries
+        """
+        # Extract keywords from query
+        keywords = [k.strip().lower() for k in query.split() if k.strip()]
+
+        if not keywords:
+            return []
+
+        # Get all devices
+        all_devices = self.get_devices(include_status=False)
+
+        # Score and match devices
+        device_scores = []
+
+        for device in all_devices:
+            score = 0.0
+            device_label = device.label.lower()
+            room_name = self.rooms.get(device.room_id, "").lower() if device.room_id else ""
+
+            # Get device capabilities
+            device_caps = set()
+            for component in device.components:
+                for cap in component.capabilities:
+                    device_caps.add(cap.id.lower())
+
+            # Calculate relevance score
+            for keyword in keywords:
+                # Exact match in label (high score)
+                if keyword in device_label:
+                    score += 10.0
+
+                # Exact match in room name (high score)
+                if keyword in room_name:
+                    score += 8.0
+
+                # Match in capabilities (medium score)
+                for cap in device_caps:
+                    if keyword in cap:
+                        score += 5.0
+
+                # Fuzzy match - check if keyword is substring (low score)
+                if any(keyword in part for part in device_label.split()):
+                    score += 2.0
+
+            # Bonus for having room context
+            if device.room_id is not None:
+                score += 1.0
+
+            if score > 0.3:
+                device_scores.append((score, device))
+
+        # Sort by score and take top N
+        device_scores.sort(key=lambda x: x[0], reverse=True)
+        top_devices = device_scores[:limit]
+
+        # Compress results
+        results = []
+        for score, device in top_devices:
+            # Get primary capability
+            primary_cap = "unknown"
+            if device.components and device.components[0].capabilities:
+                primary_cap = device.components[0].capabilities[0].id
+
+            results.append({
+                "id": str(device.device_id)[:8],  # Short ID for display
+                "fullId": str(device.device_id),  # Full ID for commands
+                "name": device.label,
+                "room": self.rooms.get(device.room_id) if device.room_id else None,
+                "type": primary_cap,
+                "relevance_score": round(score, 2)  # For debugging
+            })
+
+        return results
+
+    def get_context_summary(self) -> dict:
+        """
+        Get ultra-compressed overview of smart home setup.
+
+        Returns:
+            Dictionary with rooms, statistics, and hub time
+        """
+        from datetime import datetime
+
+        # Get all devices without status (lighter)
+        all_devices = self.get_devices(include_status=False)
+
+        # Aggregate by room
+        rooms_summary = {}
+        device_type_count = {}
+
+        for device in all_devices:
+            # Room aggregation
+            room_id = device.room_id
+            room_name = self.rooms.get(room_id, "unknown") if room_id else "unassigned"
+
+            if room_name not in rooms_summary:
+                rooms_summary[room_name] = {
+                    "device_count": 0,
+                    "types": set()
+                }
+
+            rooms_summary[room_name]["device_count"] += 1
+
+            # Get device types from capabilities
+            for component in device.components:
+                for cap in component.capabilities:
+                    cap_id = cap.id
+                    if cap_id not in IGNORE_CAPABILITIES and '.' not in cap_id:
+                        rooms_summary[room_name]["types"].add(cap_id)
+                        device_type_count[cap_id] = device_type_count.get(cap_id, 0) + 1
+
+        # Convert sets to lists for JSON serialization
+        for room_data in rooms_summary.values():
+            room_data["types"] = list(room_data["types"])
+
+        # Get hub time
+        now = datetime.now(self.timezone)
+        hub_time = f"{now.strftime('%Y-%m-%d %H:%M:%S')} {self.timezone}"
+
+        return {
+            "rooms": rooms_summary,
+            "statistics": {
+                "total_devices": len(all_devices),
+                "by_type": device_type_count
+            },
+            "hub_time": hub_time
+        }
+
+    def get_device_commands(self, device_id: UUID, capability: Capability) -> dict:
+        """
+        Get available commands and attributes for a device capability.
+
+        Args:
+            device_id: Device UUID
+            capability: Capability name (e.g., "switch", "switchLevel")
+
+        Returns:
+            Dictionary with capability info, commands, and attributes
+        """
+        device_id = self.validate_device_id(device_id)
+
+        # Get device with full info
+        devices = self.get_devices(include_status=True)
+        target_device = None
+
+        for device in devices:
+            if device.device_id == device_id:
+                target_device = device
+                break
+
+        if not target_device:
+            raise ValueError(f"Device {device_id} not found")
+
+        # Find the capability in device components
+        capability_info = None
+
+        for component in target_device.components:
+            for cap in component.capabilities:
+                if cap.id == capability:
+                    capability_info = {
+                        "component": component.id,
+                        "capability": cap.id,
+                        "version": cap.version
+                    }
+
+                    # Extract attributes from status if available
+                    attributes = {}
+                    if cap.status:
+                        for attr_name, attr_value in cap.status.items():
+                            if not attr_name.startswith('supported') and attr_name != 'numberOfButtons':
+                                attributes[attr_name] = {
+                                    "type": type(attr_value.value).__name__,
+                                    "current_value": attr_value.value,
+                                    "unit": attr_value.unit
+                                }
+
+                    capability_info["attributes"] = attributes
+                    break
+
+            if capability_info:
+                break
+
+        if not capability_info:
+            return {
+                "error": f"Capability '{capability}' not found on device {device_id}",
+                "available_capabilities": [
+                    cap.id for component in target_device.components
+                    for cap in component.capabilities
+                ]
+            }
+
+        # Map common capabilities to their commands
+        # This is a simplified mapping - in production, you'd query SmartThings API for schema
+        CAPABILITY_COMMANDS = {
+            "switch": ["on", "off"],
+            "switchLevel": ["setLevel"],
+            "lock": ["lock", "unlock"],
+            "thermostat": ["setHeatingSetpoint", "setCoolingSetpoint", "setThermostatMode"],
+            "colorControl": ["setColor", "setHue", "setSaturation"],
+            "colorTemperature": ["setColorTemperature"],
+            "windowShade": ["open", "close", "pause"],
+            "windowShadeLevel": ["setShadeLevel"],
+            "fanSpeed": ["setFanSpeed"],
+            "valve": ["open", "close"],
+        }
+
+        commands = CAPABILITY_COMMANDS.get(capability, [])
+        capability_info["commands"] = commands
+
+        return capability_info
+
+    def batch_execute_commands(self, operations: List[dict]) -> dict:
+        """
+        Execute commands on multiple devices in a single call.
+
+        Simple design: Only accepts device_id + commands.
+        AI should call search_devices first to get device_ids.
+
+        Args:
+            operations: List of dicts with format:
+                [{"device_id": UUID, "commands": [Command, ...]}, ...]
+
+        Returns:
+            Summary of execution results
+
+        Example:
+            # AI workflow (recommended):
+            # Step 1: Search devices (parallel)
+            device1 = search_devices("客厅 灯")
+            device2 = search_devices("卧室 空调")
+
+            # Step 2: Batch execute (with device_ids from step 1)
+            batch_execute_commands([
+                {"device_id": device1["fullId"], "commands": [...]},
+                {"device_id": device2["fullId"], "commands": [...]}
+            ])
+        """
+        results = []
+
+        for op in operations:
+            try:
+                device_id = UUID(op['device_id']) if isinstance(op['device_id'], str) else op['device_id']
+                commands = op['commands']
+
+                # Convert dict commands to Command objects if needed
+                from st.command import Command
+                command_objs = []
+                for cmd in commands:
+                    if isinstance(cmd, dict):
+                        command_objs.append(Command(
+                            component=cmd.get('component', 'main'),
+                            capability=cmd['capability'],
+                            command=cmd['command'],
+                            arguments=cmd.get('arguments')
+                        ))
+                    else:
+                        command_objs.append(cmd)
+
+                # Execute commands
+                result = self.device_commands(device_id, command_objs)
+
+                results.append({
+                    'device_id': str(device_id),
+                    'status': 'success',
+                    'details': result
+                })
+
+            except Exception as e:
+                logger.error(f"Failed to execute commands on device {op.get('device_id')}: {e}")
+                results.append({
+                    'device_id': str(op.get('device_id', 'unknown')),
+                    'status': 'failed',
+                    'error': str(e)
+                })
+
+        # Calculate summary
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        failed_count = sum(1 for r in results if r['status'] == 'failed')
+
+        return {
+            'total': len(operations),
+            'success': success_count,
+            'failed': failed_count,
+            'results': results
+        }
+
 
 def _bucket_time(ts: datetime, granularity: Granularity = "realtime") -> datetime:
     """Round a timestamp down to the given granularity."""
