@@ -639,83 +639,36 @@ class Location(ILocation):
 
     def batch_execute_commands(self, operations: List[dict]) -> dict:
         """
-        Enhanced: Execute commands on multiple devices with flexible input formats.
+        Execute commands on multiple devices in a single call.
 
-        Supports three input formats:
-        1. Direct device_id: {"device_id": UUID, "commands": [...]}
-        2. Device search: {"deviceName": "灯", "roomName": "客厅", "commands": [...]}
-        3. Query string (legacy): {"query": "客厅 灯", "commands": [...]}
+        Simple design: Only accepts device_id + commands.
+        AI should call search_devices first to get device_ids.
 
         Args:
-            operations: List of operation dicts
+            operations: List of dicts with format:
+                [{"device_id": UUID, "commands": [Command, ...]}, ...]
 
         Returns:
-            Summary with total, success, failed counts and per-device results
+            Summary of execution results
 
         Example:
-            operations = [
-                {"deviceName": "灯", "roomName": "客厅", "commands": [...]},
-                {"device_id": "xxx-xxx", "commands": [...]},
-                {"query": "卧室 空调", "commands": [...]}
-            ]
+            # AI workflow (recommended):
+            # Step 1: Search devices (parallel)
+            device1 = search_devices("客厅 灯")
+            device2 = search_devices("卧室 空调")
+
+            # Step 2: Batch execute (with device_ids from step 1)
+            batch_execute_commands([
+                {"device_id": device1["fullId"], "commands": [...]},
+                {"device_id": device2["fullId"], "commands": [...]}
+            ])
         """
         results = []
 
         for op in operations:
-            device_identifier = None  # For logging
-
             try:
-                # Step 1: Resolve device_id from various input formats
-                if 'device_id' in op:
-                    # Format 1: Direct device_id
-                    device_id = UUID(op['device_id']) if isinstance(op['device_id'], str) else op['device_id']
-                    device_identifier = f"device_id:{str(device_id)[:8]}"
-
-                elif 'deviceName' in op or 'roomName' in op:
-                    # Format 2: deviceName + roomName (recommended)
-                    device_name = op.get('deviceName', '')
-                    room_name = op.get('roomName', '')
-
-                    # Build search query
-                    query_parts = []
-                    if room_name:
-                        query_parts.append(room_name)
-                    if device_name:
-                        query_parts.append(device_name)
-
-                    search_query = ' '.join(query_parts)
-                    device_identifier = f"search:{search_query}"
-
-                    if not search_query:
-                        raise ValueError("Must provide at least deviceName or roomName")
-
-                    # Search for device
-                    search_results = self.search_devices(search_query, limit=1)
-                    if not search_results:
-                        raise ValueError(f"No device found for {search_query}")
-
-                    device_id = UUID(search_results[0]['fullId'])
-                    logger.info(f"Resolved '{search_query}' to device {search_results[0]['name']} ({str(device_id)[:8]})")
-
-                elif 'query' in op:
-                    # Format 3: Legacy query string
-                    query = op['query']
-                    device_identifier = f"query:{query}"
-
-                    search_results = self.search_devices(query, limit=1)
-                    if not search_results:
-                        raise ValueError(f"No device found for query '{query}'")
-
-                    device_id = UUID(search_results[0]['fullId'])
-                    logger.info(f"Resolved query '{query}' to device {search_results[0]['name']} ({str(device_id)[:8]})")
-
-                else:
-                    raise ValueError("Must provide one of: device_id, deviceName/roomName, or query")
-
-                # Step 2: Prepare commands
-                commands = op.get('commands', [])
-                if not commands:
-                    raise ValueError("No commands provided")
+                device_id = UUID(op['device_id']) if isinstance(op['device_id'], str) else op['device_id']
+                commands = op['commands']
 
                 # Convert dict commands to Command objects if needed
                 from st.command import Command
@@ -731,20 +684,19 @@ class Location(ILocation):
                     else:
                         command_objs.append(cmd)
 
-                # Step 3: Execute commands
+                # Execute commands
                 result = self.device_commands(device_id, command_objs)
 
                 results.append({
                     'device_id': str(device_id),
-                    'device_identifier': device_identifier,
                     'status': 'success',
                     'details': result
                 })
 
             except Exception as e:
-                logger.error(f"Failed to execute commands on {device_identifier or 'unknown device'}: {e}")
+                logger.error(f"Failed to execute commands on device {op.get('device_id')}: {e}")
                 results.append({
-                    'device_identifier': device_identifier or str(op),
+                    'device_id': str(op.get('device_id', 'unknown')),
                     'status': 'failed',
                     'error': str(e)
                 })
