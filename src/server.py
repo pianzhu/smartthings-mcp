@@ -297,37 +297,101 @@ def get_context_summary() -> dict:
 
 @mcp.tool(
     description="""
-Execute commands on multiple devices in a single call.
+Enhanced batch execution: Execute commands on multiple devices with auto-search.
 
-[FUNCTION]: Batch execution of commands across multiple devices
+[FUNCTION]: Smart batch execution with flexible device identification
 
-[WHEN TO USE]:
-- User wants to control multiple devices at once
-- Examples: "关闭所有灯", "打开客厅的所有设备"
-- When efficiency is important (reduce latency)
+[THREE INPUT FORMATS]:
+1. Direct ID (fastest): {"device_id": "xxx-xxx", "commands": [...]}
+2. Named search (recommended): {"deviceName": "灯", "roomName": "客厅", "commands": [...]}
+3. Query string (legacy): {"query": "客厅 灯", "commands": [...]}
 
-[DO NOT USE]:
-- For single device commands (use execute_commands)
-- When devices need sequential execution with conditions
+[EXECUTION STRATEGY - IMPORTANT]:
 
-[EXAMPLE]:
-User: "关闭客厅所有的灯"
-Step 1: search_devices("客厅 灯") → [{fullId: id1}, {fullId: id2}]
-Step 2: batch_execute_commands([
-    {"device_id": id1, "commands": [{"capability": "switch", "command": "off"}]},
-    {"device_id": id2, "commands": [{"capability": "switch", "command": "off"}]}
+📋 Scenario 1: Few diverse operations (2-3 different rooms/types)
+Example: "打开客厅的灯，关闭卧室的空调，锁上前门"
+
+Strategy: PARALLEL tool calls (fastest)
+  Round 1: Call search_devices 3x in parallel
+    search_devices("客厅 灯")
+    search_devices("卧室 空调")
+    search_devices("前门")
+
+  Round 2: Call execute_commands 3x in parallel
+    execute_commands(light_id, ...)
+    execute_commands(ac_id, ...)
+    execute_commands(lock_id, ...)
+
+Token: ~1500 | Latency: 2 API rounds
+
+📦 Scenario 2: Many similar operations (4+ devices, same type/room)
+Example: "关闭客厅所有的灯" (5个灯)
+
+Strategy: BATCH execution (simplest)
+  Step 1: search_devices("客厅 灯") → get all IDs
+  Step 2: batch_execute_commands([
+    {"deviceName": "吸顶灯", "roomName": "客厅", "commands": [...]},
+    {"deviceName": "台灯", "roomName": "客厅", "commands": [...]},
+    ...
+  ])
+
+Token: ~800 | Latency: 2 API calls (search + batch)
+
+🔄 Scenario 3: Mixed operations (some similar, some different)
+Example: "关闭客厅所有的灯，打开卧室的空调"
+
+Strategy: HYBRID (balanced)
+  - Batch for similar ops (客厅 lights)
+  - Parallel for different ops (卧室 AC)
+
+[WHEN TO USE THIS TOOL]:
+- 4+ operations of similar type/location
+- Need atomic execution (all succeed or report failures)
+- Want to minimize tool call overhead
+
+[WHEN NOT TO USE]:
+- Single device (use execute_commands)
+- 2-3 diverse devices (use parallel search + execute)
+- Need conditional logic between operations
+
+[EXAMPLE - Recommended Format]:
+User: "打开客厅的灯，关闭卧室的空调，锁上前门"
+
+OPTION A (if 4+ ops): batch_execute_commands([
+    {"deviceName": "灯", "roomName": "客厅", "commands": [{"capability": "switch", "command": "on"}]},
+    {"deviceName": "空调", "roomName": "卧室", "commands": [{"capability": "switch", "command": "off"}]},
+    {"deviceName": "锁", "roomName": "前门", "commands": [{"capability": "lock", "command": "lock"}]}
 ])
+
+OPTION B (if 2-3 ops): Use parallel search_devices + execute_commands
 
 [OUTPUT FORMAT]:
 {
     "total": 3,
     "success": 2,
     "failed": 1,
-    "results": [{device_id, status, details/error}, ...]
+    "results": [
+        {
+            "device_id": "xxx",
+            "device_identifier": "search:客厅 灯",
+            "status": "success",
+            "details": {...}
+        },
+        {
+            "device_identifier": "search:卧室 空调",
+            "status": "failed",
+            "error": "No device found for 卧室 空调"
+        }
+    ]
 }
+
+[PERFORMANCE NOTES]:
+- Internal auto-search: ~100ms per device
+- Parallel execution: All commands sent simultaneously
+- Partial failure supported: Other ops continue if one fails
 """,
     annotations=ToolAnnotations(
-        title="Batch Execute Commands",
+        title="Batch Execute Commands (Enhanced)",
         readOnlyHint=False,
         destructiveHint=True,
         idempotentHint=False,
@@ -336,10 +400,12 @@ Step 2: batch_execute_commands([
 )
 def batch_execute_commands(operations: List[dict]) -> dict:
     """
-    Execute commands on multiple devices in a single call.
-    Use when user wants to control multiple devices at once.
+    Enhanced batch execution with auto-search support.
 
-    operations format: [{"device_id": UUID, "commands": [Command, ...]}, ...]
+    Accepts three formats:
+    1. {"device_id": UUID, "commands": [...]}
+    2. {"deviceName": "灯", "roomName": "客厅", "commands": [...]}  (recommended)
+    3. {"query": "客厅 灯", "commands": [...]}  (legacy)
     """
     logger.info(f"Batch executing commands on {len(operations)} devices")
     return location.batch_execute_commands(operations)
