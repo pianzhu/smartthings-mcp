@@ -6,7 +6,7 @@ A comprehensive AI agent for controlling SmartThings devices using Claude AI and
 
 # Core components that don't require external dependencies
 from .context_manager import ConversationContext, DeviceMemory
-from .planner import WorkflowPlanner, Intent, Workflow, WorkflowStep
+from .planner import DeviceControlPlanner, DeviceControlPlan
 from .error_handler import ErrorHandler, AgentError, ErrorType, FallbackStrategy
 from .prompts import AGENT_SYSTEM_PROMPT
 
@@ -21,10 +21,8 @@ except ImportError:
 __all__ = [
     "ConversationContext",
     "DeviceMemory",
-    "WorkflowPlanner",
-    "Intent",
-    "Workflow",
-    "WorkflowStep",
+    "DeviceControlPlanner",
+    "DeviceControlPlan",
     "ErrorHandler",
     "AgentError",
     "ErrorType",

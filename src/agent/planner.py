@@ -1,416 +1,89 @@
 """
-Intent Recognition and Workflow Planner
-Implements decision tree for different user intents
+Simplified Workflow Planner for Device Control
+All requests are device control - no intent classification needed
 """
 
-from enum import Enum
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import re
 
 
-class Intent(Enum):
-    """User intent types"""
-
-    CONTROL = "control"  # "打开客厅的灯"
-    QUERY = "query"  # "客厅温度是多少？"
-    ANALYSIS = "analysis"  # "过去一周的平均温度"
-    DISCOVERY = "discovery"  # "我有哪些设备？"
-    CONDITIONAL_CONTROL = "conditional_control"  # "如果温度>26度，打开空调"
-    UNKNOWN = "unknown"
-
-
 @dataclass
-class WorkflowStep:
-    """A single step in workflow execution"""
+class DeviceControlPlan:
+    """Plan for controlling devices"""
 
-    tool_name: str
-    parameters: Dict[str, Any]
-    description: str
-    depends_on: Optional[int] = None  # Index of step this depends on
-    parallel_group: Optional[int] = None  # Steps with same group can run in parallel
-
-
-@dataclass
-class Workflow:
-    """Complete workflow plan"""
-
-    intent: Intent
-    steps: List[WorkflowStep]
-    description: str
-    requires_confirmation: bool = False
+    device_query: str  # Search query for devices
+    command_text: str  # User's command in natural language
+    is_multi_device: bool  # Whether controlling multiple devices
+    device_count: int  # Estimated number of devices
+    requires_interpret: bool  # Whether needs interpret_command
 
 
-class IntentRecognizer:
-    """Recognizes user intent from natural language"""
-
-    # Intent patterns
-    CONTROL_PATTERNS = [
-        r"(打开|关闭|开启|关掉|开|关|turn on|turn off|开灯|关灯)",
-        r"(设置|调|调整|set|adjust)",
-        r"(锁|解锁|lock|unlock)",
-        r"(启动|停止|start|stop)",
-    ]
-
-    QUERY_PATTERNS = [
-        r"(是多少|怎么样|如何|what|how|状态|current|现在)",
-        r"(.*[吗？]$)",  # Questions ending with 吗
-        r"(.*\?$)",  # Questions ending with ?
-        r"(在哪|where)",
-    ]
-
-    ANALYSIS_PATTERNS = [
-        r"(过去|历史|统计|平均|总共|history|statistics|average|total)",
-        r"(这周|上周|今天|昨天|this week|last week|today|yesterday)",
-        r"(趋势|变化|trend|change)",
-    ]
-
-    DISCOVERY_PATTERNS = [
-        r"(有哪些|列出|显示所有|list|show all)",
-        r"(什么设备|all devices|my devices)",
-        r"(房间.*设备|devices in)",
-    ]
-
-    CONDITIONAL_PATTERNS = [
-        r"(如果|假如|when|if).*?(就|then|那么|，|,)",
-        r"(当|whenever).*?(时|的时候|，|,)",
-    ]
-
-    @staticmethod
-    def recognize(user_input: str) -> Intent:
-        """
-        Recognize intent from user input
-
-        Args:
-            user_input: User's natural language input
-
-        Returns:
-            Detected Intent
-        """
-        user_input = user_input.lower()
-
-        # Check conditional first (most specific)
-        for pattern in IntentRecognizer.CONDITIONAL_PATTERNS:
-            if re.search(pattern, user_input):
-                return Intent.CONDITIONAL_CONTROL
-
-        # Check discovery
-        for pattern in IntentRecognizer.DISCOVERY_PATTERNS:
-            if re.search(pattern, user_input):
-                return Intent.DISCOVERY
-
-        # Check analysis
-        for pattern in IntentRecognizer.ANALYSIS_PATTERNS:
-            if re.search(pattern, user_input):
-                return Intent.ANALYSIS
-
-        # Check query
-        for pattern in IntentRecognizer.QUERY_PATTERNS:
-            if re.search(pattern, user_input):
-                return Intent.QUERY
-
-        # Check control
-        for pattern in IntentRecognizer.CONTROL_PATTERNS:
-            if re.search(pattern, user_input):
-                return Intent.CONTROL
-
-        return Intent.UNKNOWN
-
-    @staticmethod
-    def extract_device_query(user_input: str) -> str:
-        """
-        Extract device search query from user input
-
-        Args:
-            user_input: User's input
-
-        Returns:
-            Extracted query for search_devices
-        """
-        # Remove common command words
-        query = user_input
-        remove_patterns = [
-            r"^(请|帮我|帮忙|能不能|可以|可否|please|help me|can you)\s*",
-            r"(打开|关闭|开启|关掉|turn on|turn off)",
-            r"(查询|查看|看看|显示|show|display|check)",
-        ]
-
-        for pattern in remove_patterns:
-            query = re.sub(pattern, "", query, flags=re.IGNORECASE)
-
-        # Extract room + device type patterns
-        # Example: "客厅的灯" → "客厅 灯"
-        query = re.sub(r"的", " ", query)
-        query = re.sub(r"\s+", " ", query).strip()
-
-        return query
-
-
-class WorkflowPlanner:
-    """Plans workflow based on intent and context"""
+class DeviceControlPlanner:
+    """Plans device control workflows - simplified for control-only use case"""
 
     def __init__(self):
-        self.intent_recognizer = IntentRecognizer()
+        pass
 
-    def plan(
-        self,
-        user_input: str,
-        context: Optional[Dict[str, Any]] = None,
-        intent: Optional[Intent] = None,
-    ) -> Workflow:
+    def parse_control_request(self, user_input: str) -> DeviceControlPlan:
         """
-        Plan workflow based on user input and context
+        Parse user's device control request
 
         Args:
             user_input: User's natural language input
-            context: Optional context information (current room, known devices, etc.)
-            intent: Optional pre-determined intent (if None, will be detected)
 
         Returns:
-            Workflow plan
+            DeviceControlPlan with extracted information
         """
-        if intent is None:
-            intent = self.intent_recognizer.recognize(user_input)
+        # Extract device query and command
+        device_query, command_text = self._split_device_and_command(user_input)
 
-        context = context or {}
+        # Detect multi-device operation
+        is_multi, count = self._detect_multi_device(user_input)
 
-        # Route to specific planner based on intent
-        if intent == Intent.CONTROL:
-            return self._plan_control(user_input, context)
-        elif intent == Intent.QUERY:
-            return self._plan_query(user_input, context)
-        elif intent == Intent.ANALYSIS:
-            return self._plan_analysis(user_input, context)
-        elif intent == Intent.DISCOVERY:
-            return self._plan_discovery(user_input, context)
-        elif intent == Intent.CONDITIONAL_CONTROL:
-            return self._plan_conditional_control(user_input, context)
-        else:
-            return self._plan_unknown(user_input, context)
+        # Check if needs interpret_command (ambiguous commands)
+        requires_interpret = self._needs_interpretation(command_text)
 
-    def _plan_control(
-        self, user_input: str, context: Dict[str, Any]
-    ) -> Workflow:
-        """Plan workflow for CONTROL intent"""
-        steps = []
-
-        # Check if we have device_id in context
-        cached_device = context.get("cached_device")
-
-        if cached_device:
-            # Use cached device, skip search
-            steps.append(
-                WorkflowStep(
-                    tool_name="execute_commands",
-                    parameters={
-                        "device_id": cached_device["device_id"],
-                        "commands": [],  # Will be filled by AI
-                    },
-                    description=f"Execute command on {cached_device['name']}",
-                )
-            )
-        else:
-            # Need to search first
-            query = self.intent_recognizer.extract_device_query(user_input)
-            steps.append(
-                WorkflowStep(
-                    tool_name="search_devices",
-                    parameters={"query": query, "limit": 5},
-                    description=f"Search for devices matching '{query}'",
-                )
-            )
-            steps.append(
-                WorkflowStep(
-                    tool_name="execute_commands",
-                    parameters={
-                        "device_id": "<from_step_0>",
-                        "commands": [],
-                    },
-                    description="Execute command on found device",
-                    depends_on=0,
-                )
-            )
-
-        return Workflow(
-            intent=Intent.CONTROL, steps=steps, description="Control device workflow"
+        return DeviceControlPlan(
+            device_query=device_query,
+            command_text=command_text,
+            is_multi_device=is_multi,
+            device_count=count,
+            requires_interpret=requires_interpret
         )
 
-    def _plan_query(self, user_input: str, context: Dict[str, Any]) -> Workflow:
-        """Plan workflow for QUERY intent"""
-        steps = []
+    def _split_device_and_command(self, user_input: str) -> Tuple[str, str]:
+        """
+        Split user input into device query and command
 
-        cached_device = context.get("cached_device")
-
-        if cached_device:
-            # Check if we have fresh cached status
-            if context.get("has_fresh_status"):
-                # No need to query again, use cached
-                return Workflow(
-                    intent=Intent.QUERY,
-                    steps=[],
-                    description="Use cached status (no API call needed)",
-                )
-            else:
-                # Query status for cached device
-                steps.append(
-                    WorkflowStep(
-                        tool_name="get_device_status",
-                        parameters={"device_id": cached_device["device_id"]},
-                        description=f"Get status of {cached_device['name']}",
-                    )
-                )
-        else:
-            # Need to search first
-            query = self.intent_recognizer.extract_device_query(user_input)
-            steps.append(
-                WorkflowStep(
-                    tool_name="search_devices",
-                    parameters={"query": query, "limit": 5},
-                    description=f"Search for devices matching '{query}'",
-                )
-            )
-            steps.append(
-                WorkflowStep(
-                    tool_name="get_device_status",
-                    parameters={"device_id": "<from_step_0>"},
-                    description="Get status of found device",
-                    depends_on=0,
-                )
-            )
-
-        return Workflow(
-            intent=Intent.QUERY, steps=steps, description="Query device status workflow"
-        )
-
-    def _plan_analysis(
-        self, user_input: str, context: Dict[str, Any]
-    ) -> Workflow:
-        """Plan workflow for ANALYSIS intent"""
-        steps = []
-
-        # Always need to search for device first
-        query = self.intent_recognizer.extract_device_query(user_input)
-        steps.append(
-            WorkflowStep(
-                tool_name="search_devices",
-                parameters={"query": query, "limit": 5},
-                description=f"Search for devices matching '{query}'",
-            )
-        )
-
-        # Then get history
-        steps.append(
-            WorkflowStep(
-                tool_name="get_device_history",
-                parameters={
-                    "device_id": "<from_step_0>",
-                    "capability": "<infer_from_device>",
-                },
-                description="Get device history for analysis",
-                depends_on=0,
-            )
-        )
-
-        return Workflow(
-            intent=Intent.ANALYSIS,
-            steps=steps,
-            description="Analyze device history workflow",
-        )
-
-    def _plan_discovery(
-        self, user_input: str, context: Dict[str, Any]
-    ) -> Workflow:
-        """Plan workflow for DISCOVERY intent"""
-        # Discovery always uses get_context_summary
-        steps = [
-            WorkflowStep(
-                tool_name="get_context_summary",
-                parameters={},
-                description="Get overview of all devices",
-            )
+        Examples:
+            "打开客厅的灯" → ("客厅 灯", "打开")
+            "让卧室的灯柔和一些" → ("卧室 灯", "柔和一些")
+            "把空调调到26度" → ("空调", "调到26度")
+        """
+        # Remove common action words to extract device query
+        command_patterns = [
+            r"^(打开|关闭|开启|关掉|开|关|让|把)",
+            r"(调到|设置为|设为)",
         ]
 
-        return Workflow(
-            intent=Intent.DISCOVERY,
-            steps=steps,
-            description="Discover devices workflow",
-        )
+        device_query = user_input
+        for pattern in command_patterns:
+            device_query = re.sub(pattern, "", device_query, flags=re.IGNORECASE)
 
-    def _plan_conditional_control(
-        self, user_input: str, context: Dict[str, Any]
-    ) -> Workflow:
-        """Plan workflow for CONDITIONAL_CONTROL intent"""
-        steps = []
+        # Extract command by removing device references
+        # Simple approach: everything after device is command
+        command_text = user_input
 
-        # Parse conditional: "如果 X，那么 Y"
-        # This is simplified - real parsing would be more sophisticated
+        # Clean up
+        device_query = re.sub(r"的", " ", device_query)
+        device_query = re.sub(r"\s+", " ", device_query).strip()
 
-        # Step 1: Search for sensor device
-        steps.append(
-            WorkflowStep(
-                tool_name="search_devices",
-                parameters={"query": "<extract_sensor_query>", "limit": 5},
-                description="Search for sensor device",
-            )
-        )
+        return device_query, command_text
 
-        # Step 2: Get sensor status
-        steps.append(
-            WorkflowStep(
-                tool_name="get_device_status",
-                parameters={"device_id": "<from_step_0>"},
-                description="Get sensor status",
-                depends_on=0,
-            )
-        )
-
-        # Step 3: (AI evaluates condition)
-        # Step 4: Search for actuator device
-        steps.append(
-            WorkflowStep(
-                tool_name="search_devices",
-                parameters={"query": "<extract_actuator_query>", "limit": 5},
-                description="Search for actuator device",
-            )
-        )
-
-        # Step 5: Execute command if condition is met
-        steps.append(
-            WorkflowStep(
-                tool_name="execute_commands",
-                parameters={"device_id": "<from_step_2>", "commands": []},
-                description="Execute command if condition is met",
-                depends_on=2,
-            )
-        )
-
-        return Workflow(
-            intent=Intent.CONDITIONAL_CONTROL,
-            steps=steps,
-            description="Conditional control workflow",
-            requires_confirmation=True,
-        )
-
-    def _plan_unknown(self, user_input: str, context: Dict[str, Any]) -> Workflow:
-        """Plan workflow for UNKNOWN intent"""
-        # Fallback: try to get context summary
-        steps = [
-            WorkflowStep(
-                tool_name="get_context_summary",
-                parameters={},
-                description="Get context to help understand user request",
-            )
-        ]
-
-        return Workflow(
-            intent=Intent.UNKNOWN,
-            steps=steps,
-            description="Unknown intent - getting context",
-        )
-
-    def detect_multi_device_operation(self, user_input: str) -> Tuple[bool, int]:
+    def _detect_multi_device(self, user_input: str) -> Tuple[bool, int]:
         """
-        Detect if user is requesting multiple device operations
+        Detect if user is controlling multiple devices
 
         Args:
             user_input: User input
@@ -428,6 +101,31 @@ class WorkflowPlanner:
         is_multi = count > 1
 
         return is_multi, count
+
+    def _needs_interpretation(self, command_text: str) -> bool:
+        """
+        Check if command needs interpret_command tool
+
+        Clear commands like "打开", "关闭", "turn on" don't need interpretation.
+        Ambiguous commands like "柔和一些", "亮点" need interpretation.
+        """
+        # Clear command patterns - don't need interpretation
+        clear_patterns = [
+            r"^(打开|开启|turn\s+on|开)$",
+            r"^(关闭|关掉|turn\s+off|关)$",
+            r"^(锁上|lock)$",
+            r"^(解锁|unlock)$",
+            r"(调到|设置|set.*to)\s*\d+",  # Has explicit numeric value
+        ]
+
+        command_lower = command_text.lower().strip()
+
+        for pattern in clear_patterns:
+            if re.search(pattern, command_lower):
+                return False  # Clear command, no interpretation needed
+
+        # Default: needs interpretation for ambiguous commands
+        return True
 
     def should_use_batch(self, device_count: int) -> bool:
         """
