@@ -484,10 +484,19 @@ class Location(ILocation):
         # Compress results
         results = []
         for score, device in top_devices:
-            # Get primary capability
+            # Get all capabilities from all components
+            all_capabilities = []
             primary_cap = "unknown"
-            if device.components and device.components[0].capabilities:
-                primary_cap = device.components[0].capabilities[0].id
+
+            for component in device.components:
+                for cap in component.capabilities:
+                    cap_id = cap.id
+                    if cap_id not in all_capabilities:
+                        all_capabilities.append(cap_id)
+
+            # Primary capability is the first one
+            if all_capabilities:
+                primary_cap = all_capabilities[0]
 
             results.append({
                 "id": str(device.device_id)[:8],  # Short ID for display
@@ -495,6 +504,7 @@ class Location(ILocation):
                 "name": device.label,
                 "room": self.rooms.get(device.room_id) if device.room_id else None,
                 "type": primary_cap,
+                "capabilities": all_capabilities,  # All capabilities for intent mapping
                 "relevance_score": round(score, 2)  # For debugging
             })
 

@@ -17,6 +17,7 @@ from api import (
     ConnectionType,
     Location,
 )
+from intent_mapper import IntentMapper
 
 load_dotenv()
 token = environ.get("TOKEN")
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Create server
 mcp = FastMCP("SmartThings", port=8001)
+
+# Create intent mapper for natural language command interpretation
+intent_mapper = IntentMapper()
 
 
 @mcp.tool(description="Get rooms UUID and names", annotations=ToolAnnotations(
@@ -173,11 +177,24 @@ Search devices by natural language query.
 
 [EXAMPLE]:
 User: "打开客厅的灯"
-Step 1: search_devices("客厅 灯") → Returns [{id, name, room, type, fullId}]
+Step 1: search_devices("客厅 灯") → Returns [{id, name, room, type, fullId, capabilities}]
 Step 2: execute_commands(fullId, [...])
 
+User: "让灯光柔和一些" (ambiguous command)
+Step 1: search_devices("灯") → Returns device with capabilities
+Step 2: interpret_command("柔和一些", capabilities) → Get specific command
+Step 3: execute_commands(fullId, [...])
+
 [OUTPUT FORMAT]:
-List of up to 5 devices with minimal info: {id, name, room, type, fullId}
+List of up to 5 devices with info: {
+  id: "abc12345",           # Short ID for display
+  fullId: "full-uuid",      # Full ID for execute_commands
+  name: "Device Name",
+  room: "Room Name",
+  type: "primary capability",
+  capabilities: ["switch", "switchLevel", "..."],  # All capabilities
+  relevance_score: 12.5
+}
 Sorted by relevance score.
 """,
     annotations=ToolAnnotations(
@@ -400,6 +417,133 @@ def batch_execute_commands(operations: List[dict]) -> dict:
     """
     logger.info(f"Batch executing commands on {len(operations)} devices")
     return location.batch_execute_commands(operations)
+
+
+@mcp.tool(
+    description="""
+Interpret natural language commands and map them to device operations.
+
+[FUNCTION]: Intelligent command interpretation with semantic matching
+
+[WHEN TO USE]:
+- User uses ambiguous phrases like "柔和一些", "亮点", "暗些"
+- Need to map natural language to specific device commands
+- Want to validate interpretation before execution
+- User says things like "make it softer", "dim it a bit"
+
+[DO NOT USE]:
+- For clear commands like "turn on", "set to 50%", "off"
+- When you already know the exact command and parameters
+- For device discovery or status queries
+
+[WORKFLOW]:
+User: "让客厅的灯柔和一些"
+
+Step 1: search_devices("客厅 灯")
+  → Returns: {id: "abc-123", capabilities: ["switch", "switchLevel"]}
+
+Step 2: interpret_command(
+  user_input="柔和一些",
+  device_capabilities=["switch", "switchLevel"]
+)
+  → Returns: {
+      intent: "DECREASE_BRIGHTNESS",
+      capability: "switchLevel",
+      command: "setLevel",
+      arguments: [40],
+      confidence: 1.0,
+      interpretation: "Decrease brightness to 40% (soft lighting)"
+    }
+
+Step 3: execute_commands(device_id="abc-123", commands=[
+  {capability: "switchLevel", command: "setLevel", arguments: [40]}
+])
+
+[KEY FEATURES]:
+- Semantic matching (not just string matching)
+- Context-aware (same word → different commands for different devices)
+- Parameter extraction ("调到50%" → 50)
+- Suggested values ("柔和" → 40, "微弱" → 20)
+- Confidence scoring
+
+[EXAMPLES]:
+Input: "柔和一些" + switchLevel → setLevel(40)
+Input: "亮点" + switchLevel → setLevel(+20 from current)
+Input: "打开锁" + lock → unlock (context-aware)
+Input: "调到50%" + switchLevel → setLevel(50)
+
+[OUTPUT FORMAT]:
+{
+    "intent": "DECREASE_BRIGHTNESS",
+    "capability": "switchLevel",
+    "command": "setLevel",
+    "arguments": [40],
+    "confidence": 0.95,
+    "interpretation": "Human-readable explanation",
+    "needs_current_state": false
+}
+
+Or if cannot interpret:
+{
+    "error": "Cannot interpret command",
+    "suggestions": ["Possible commands..."]
+}
+""",
+    annotations=ToolAnnotations(
+        title="Interpret Natural Language Command",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False
+    )
+)
+def interpret_command(
+    user_input: str,
+    device_capabilities: List[str],
+    current_state: Optional[dict] = None
+) -> dict:
+    """
+    Interpret natural language command and map to device operation.
+
+    Args:
+        user_input: User's natural language command (e.g., "柔和一些", "亮点")
+        device_capabilities: List of device capabilities (e.g., ["switch", "switchLevel"])
+        current_state: Optional current device state for relative commands
+
+    Returns:
+        Dictionary with interpreted command or error
+    """
+    logger.info(f"Interpreting command: '{user_input}' for capabilities: {device_capabilities}")
+
+    try:
+        result = intent_mapper.map_to_command(user_input, device_capabilities, current_state)
+
+        if not result:
+            return {
+                "error": "Cannot interpret command",
+                "suggestions": [
+                    "Try using clearer commands like 'turn on', 'set to 50%', 'dim'",
+                    "Supported intents: turn on/off, increase/decrease brightness, set level, lock/unlock"
+                ]
+            }
+
+        return {
+            "intent": result.intent,
+            "capability": result.capability,
+            "command": result.command,
+            "arguments": result.arguments,
+            "confidence": result.confidence,
+            "interpretation": f"{result.intent} → {result.capability}.{result.command}({result.arguments})",
+            "needs_current_state": result.needs_current_state
+        }
+
+    except Exception as e:
+        logger.error(f"Error interpreting command: {e}")
+        return {
+            "error": str(e),
+            "user_input": user_input,
+            "capabilities": device_capabilities
+        }
 
 
 if __name__ == "__main__":

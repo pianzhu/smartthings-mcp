@@ -1,0 +1,153 @@
+{
+  "timestamp": "2025-11-14T06:40:36.380042",
+  "summary": {
+    "total_tests": 14,
+    "passed": 10,
+    "failed": 4,
+    "total_time": 0.0003731250762939453,
+    "total_tokens": 3460
+  },
+  "levels": {
+    "level1": {
+      "name": "Level 1: 单工具基础测试",
+      "tests": [
+        {
+          "test_id": "TC-101",
+          "name": "Search devices by room and type",
+          "passed": false,
+          "execution_time": 5.745887756347656e-05,
+          "total_tokens": 100,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-102",
+          "name": "Fuzzy matching for device names",
+          "passed": true,
+          "execution_time": 2.2649765014648438e-05,
+          "total_tokens": 100,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-103",
+          "name": "Handle no matching devices",
+          "passed": false,
+          "execution_time": 1.3828277587890625e-05,
+          "total_tokens": 100,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-111",
+          "name": "Get commands for switch capability",
+          "passed": true,
+          "execution_time": 1.52587890625e-05,
+          "total_tokens": 80,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-112",
+          "name": "Handle unsupported capability",
+          "passed": true,
+          "execution_time": 1.0251998901367188e-05,
+          "total_tokens": 80,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-121",
+          "name": "Batch execute commands on multiple devices",
+          "passed": true,
+          "execution_time": 1.4781951904296875e-05,
+          "total_tokens": 200,
+          "error_message": null,
+          "tool_calls": 1
+        },
+        {
+          "test_id": "TC-122",
+          "name": "Handle partial failures in batch execution",
+          "passed": true,
+          "execution_time": 1.52587890625e-05,
+          "total_tokens": 200,
+          "error_message": null,
+          "tool_calls": 1
+        }
+      ]
+    },
+    "level2": {
+      "name": "Level 2: 多工具组合测试",
+      "tests": [
+        {
+          "test_id": "TC-201",
+          "name": "Simple device control workflow",
+          "passed": true,
+          "execution_time": 2.09808349609375e-05,
+          "total_tokens": 250,
+          "error_message": null,
+          "tool_calls": 2
+        },
+        {
+          "test_id": "TC-221",
+          "name": "Batch control multiple devices",
+          "passed": true,
+          "execution_time": 3.0517578125e-05,
+          "total_tokens": 400,
+          "error_message": null,
+          "tool_calls": 2
+        },
+        {
+          "test_id": "TC-221-alt",
+          "name": "Batch control with parallel execute_commands",
+          "passed": true,
+          "execution_time": 2.3126602172851562e-05,
+          "total_tokens": 550,
+          "error_message": null,
+          "tool_calls": 4
+        }
+      ]
+    },
+    "level3": {
+      "name": "Level 3: 端到端集成测试",
+      "tests": [
+        {
+          "test_id": "TC-301",
+          "name": "Multi-turn context retention (control only)",
+          "passed": true,
+          "execution_time": 5.221366882324219e-05,
+          "total_tokens": 400,
+          "error_message": null,
+          "tool_calls": 3
+        },
+        {
+          "test_id": "TC-302",
+          "name": "Context switching between devices",
+          "passed": true,
+          "execution_time": 2.9325485229492188e-05,
+          "total_tokens": 800,
+          "error_message": null,
+          "tool_calls": 6
+        },
+        {
+          "test_id": "TC-311",
+          "name": "Complex multi-step scenario",
+          "passed": false,
+          "execution_time": 5.364418029785156e-05,
+          "total_tokens": 0,
+          "error_message": "0",
+          "tool_calls": 3
+        },
+        {
+          "test_id": "TC-312",
+          "name": "Error recovery and graceful degradation",
+          "passed": false,
+          "execution_time": 1.3828277587890625e-05,
+          "total_tokens": 200,
+          "error_message": null,
+          "tool_calls": 2
+        }
+      ]
+    }
+  }
+}
