@@ -2,7 +2,8 @@
 
 **状态**: ✅ 已完成并通过测试
 **实现日期**: 2025-11-14
-**测试覆盖**: 7 个测试场景，全部通过
+**最后更新**: 2025-11-14 (简化为设备控制专用)
+**测试覆盖**: 5 个测试场景，全部通过
 
 ---
 
@@ -21,62 +22,66 @@
 
 ## 核心目标与完成标准
 
-### 来自 02-agent-planning.md 的核心目标
+### 设计理念：专注设备控制
 
-根据文档，Agent 需要实现以下核心能力：
+**关键决策**: 所有用户请求都是设备控制命令，无需复杂的意图分类系统。
 
-#### ✅ 1. 三层架构模型
+#### ✅ 1. 简化的三层架构
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 1: Context Layer (Cached)                       │
-│  - System Prompt (工作原则、禁止行为)                   │
-│  - Static Context (房间列表、能力类型)                  │
-│  - Tool Descriptions (工具使用指南)                      │
-│  Token: ~2000 | Cache Hit Rate: 95%                    │
+│  - System Prompt (设备控制专用指南)                     │
+│  - Tool Descriptions (3个核心工具)                       │
+│  Token: ~1000 | Cache Hit Rate: 95%                    │
 └─────────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 2: Planning Layer (Dynamic)                     │
-│  - Intent Recognition (意图识别)                        │
-│  - Device Location (设备定位)                           │
-│  - Task Decomposition (任务分解)                         │
+│  Layer 2: Planning Layer (Lightweight)                 │
+│  - Device Query Extraction (提取设备查询)               │
+│  - Command Interpretation Check (判断是否需要解释)      │
+│  - Multi-Device Detection (多设备检测)                  │
+│  Token: ~300-500                                        │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  Layer 3: Execution Layer (MCP Tools)                  │
+│  - search_devices → interpret_command → execute        │
+│  - 统一的3步工作流                                       │
 │  Token: ~500-1000                                       │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│  Layer 3: Execution Layer (Transient)                  │
-│  - Pre-Execution (执行前验证)                           │
-│  - Execution (执行)                                      │
-│  - Post-Execution (执行后确认)                          │
-│  Token: ~500-1500 | Discarded after confirmation       │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**实现状态**: ✅ 完成
-- `prompts.py`: Context Layer (system prompt with caching)
-- `planner.py`: Planning Layer (intent recognition + workflow planning)
-- `client.py`: Execution Layer (tool orchestration + result processing)
+**实现状态**: ✅ 完成并简化
+- `prompts.py`: 设备控制专用系统提示词
+- `planner.py`: DeviceControlPlanner (移除意图分类)
+- `client.py`: 工具编排 (可选，简化场景可直接调用 MCP)
 
 #### ✅ 2. Prompt Engineering 策略
 
-**要求**:
-- System Prompt 包含核心原则、禁止行为、工具选择指南
-- 每个工具有完整的使用指南 (WHEN TO USE / DO NOT USE)
+**简化后的要求**:
+- System Prompt 专注设备控制工作流
+- 明确3步流程：search → interpret (可选) → execute
+- 清晰的工具使用规则
 
-**实现状态**: ✅ 完成
-- `prompts.py::AGENT_SYSTEM_PROMPT`: 完整的系统提示词 (60+ 行)
-- `prompts.py::TOOL_USAGE_PATTERNS`: 7 个工具的详细使用指南
+**实现状态**: ✅ 完成并简化
+- `prompts.py::AGENT_SYSTEM_PROMPT`: 设备控制专用提示词 (~90行)
+- 移除了 QUERY/ANALYSIS/DISCOVERY 相关指导
+- 专注于明确命令 vs 模糊命令的处理
 
-#### ✅ 3. 决策树设计
+#### ✅ 3. 工作流规划（简化）
 
-**要求**:
-- 用户意图分类: CONTROL / QUERY / ANALYSIS / DISCOVERY / CONDITIONAL_CONTROL
-- 针对每种意图的工作流规划
+**之前**: 5种意图类型，9种工作流模式
+**现在**: 专注设备控制，统一工作流
 
-**实现状态**: ✅ 完成
-- `planner.py::IntentRecognizer`: 5 种意图识别 (9/9 测试通过)
-- `planner.py::WorkflowPlanner`: 针对每种意图的特定工作流
+**实现状态**: ✅ 简化完成
+- 移除 `IntentRecognizer` 和 `Intent` enum
+- 移除 `WorkflowPlanner` 复杂决策树
+- 新增 `DeviceControlPlanner`:
+  - 提取设备查询
+  - 检测多设备操作
+  - 判断是否需要命令解释
+  - 建议批处理 vs 并行执行
 
 #### ✅ 4. 上下文感知规划
 
@@ -94,10 +99,12 @@
 
 #### ✅ 5. 并行与串行执行策略
 
-**要求**:
-- 独立操作并行执行
-- 依赖操作串行执行
-- 多设备操作智能决策 (2-3 设备 → 并行, 4+ → batch)
+**要求**: 多设备操作智能决策
+
+**实现状态**: ✅ 保持
+- 2-3 设备 → 并行 execute_commands
+- 4+ 设备 → batch_execute_commands
+- `DeviceControlPlanner.should_use_batch()` 提供建议
 
 **实现状态**: ✅ 完成
 - `planner.py::detect_multi_device_operation`: 检测多设备操作
@@ -117,50 +124,56 @@
   - Command not supported → 查询可用命令
   - Parameter invalid → 参数校正
 
-### 实施检查清单（来自文档）
+### 实施检查清单（简化后）
 
-根据 02-agent-planning.md 的检查清单：
+简化后的 Agent 系统检查清单：
 
-- [x] System Prompt 包含所有工作原则
-- [x] 每个工具有完整的使用指南（WHEN TO USE / DO NOT USE）
-- [x] 实现意图识别逻辑
-- [x] 实现设备 ID 缓存机制
-- [x] 支持并行工具调用（独立操作）
-- [x] 实现错误处理和优雅降级
-- [x] 添加 token 消耗监控
-- [x] 编写决策树单元测试
+- [x] System Prompt 专注设备控制工作流
+- [x] 核心工具使用指南（search_devices, interpret_command, execute_commands）
+- [x] 实现设备控制规划逻辑（DeviceControlPlanner）
+- [x] 实现设备 ID 缓存机制（ConversationContext）
+- [x] 支持多设备并行/批处理（should_use_batch）
+- [x] 实现错误处理和优雅降级（ErrorHandler）
+- [x] 编写设备控制规划测试
 
-**完成度**: 8/8 (100%)
+**完成度**: 7/7 (100%)
+
+**移除的项目**:
+- ❌ 意图识别逻辑（IntentRecognizer）- 所有请求都是控制命令
+- ❌ Token 消耗监控 - 简化场景不需要
 
 ---
 
 ## 系统架构
 
-### 整体架构图
+### 整体架构图（简化后）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     User (自然语言输入)                      │
+│                  "打开客厅的灯" / "让灯光柔和一些"            │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  SmartThingsAgent                           │
+│                  SmartThingsAgent (简化版)                  │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │  client.py - 主控制器                                │  │
+│  │  client.py - 主控制器 (可选)                         │  │
 │  │  - 对话管理                                           │  │
 │  │  - Claude API 调用                                    │  │
-│  │  - Token 追踪                                         │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                     │                                       │
 │        ┌────────────┼────────────┐                         │
 │        ▼            ▼            ▼                         │
-│  ┌─────────┐ ┌──────────┐ ┌───────────┐                   │
-│  │ Context │ │ Planner  │ │  Error    │                   │
-│  │ Manager │ │          │ │  Handler  │                   │
-│  │         │ │ - Intent │ │           │                   │
-│  │ - Cache │ │ - Workflow│ │ - Fallback│                  │
-│  └─────────┘ └──────────┘ └───────────┘                   │
+│  ┌─────────┐ ┌──────────────┐ ┌───────────┐               │
+│  │ Context │ │DeviceControl │ │  Error    │               │
+│  │ Manager │ │   Planner    │ │  Handler  │               │
+│  │         │ │              │ │           │               │
+│  │ - Cache │ │ - Parse      │ │ - Fallback│               │
+│  │ - Memory│ │ - Multi-Dev  │ │           │               │
+│  └─────────┘ └──────────────┘ └───────────┘               │
+│                                                             │
+│  + prompts.py (设备控制专用 System Prompt)                 │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
@@ -168,12 +181,18 @@
 │              Claude API (Anthropic SDK)                     │
 │  - Model: claude-sonnet-4-5-20250929                        │
 │  - Prompt Caching 支持                                      │
+│  - 统一的设备控制工作流                                     │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │          MCP Server (SmartThings Integration)               │
-│  Tools: search_devices, execute_commands, etc.              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 核心工具 (3个):                                      │   │
+│  │  1. search_devices - 搜索设备                        │   │
+│  │  2. interpret_command - 解析模糊命令 (intent_mapper) │   │
+│  │  3. execute_commands - 执行控制命令                  │   │
+│  └─────────────────────────────────────────────────────┘   │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
@@ -182,47 +201,99 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 数据流示例
+**架构简化说明**:
+- ❌ 移除: Intent enum, IntentRecognizer, WorkflowPlanner
+- ✅ 保留: Context Manager, Error Handler
+- ✅ 简化: DeviceControlPlanner 专注设备控制解析
+- ✅ 统一: 所有请求使用 search → interpret (可选) → execute 工作流
 
-**场景**: 用户说 "打开客厅的灯，然后把它调到50%"
+### 数据流示例（简化后）
+
+**场景 1**: 用户说 "打开客厅的灯"（明确命令）
 
 ```
 1. User Input → Agent
-   "打开客厅的灯，然后把它调到50%"
+   "打开客厅的灯"
 
-2. Agent → Context Manager
-   - infer_room_from_input() → "living room"
-   - current_room = "living room"
+2. Agent → DeviceControlPlanner
+   parse_control_request("打开客厅的灯")
+   → DeviceControlPlan(
+       device_query="客厅 灯",
+       command_text="打开客厅的灯",
+       is_multi_device=False,
+       device_count=1,
+       requires_interpret=False
+     )
 
-3. Agent → Planner
-   - recognize_intent() → Intent.CONTROL
-   - detect_multi_device_operation() → (False, 1)
+3. Agent → Claude API
+   System Prompt (设备控制专用) + User Message + MCP Tools
 
-4. Agent → Claude API
-   System Prompt + User Message + MCP Tools
-
-5. Claude → MCP Server (Tool Call #1)
+4. Claude → MCP Server (Tool Call #1)
    search_devices(query="客厅 灯")
 
-6. MCP → Agent (Result #1)
-   [{"id": "abc123", "name": "客厅吸顶灯", ...}]
+5. MCP → Claude (Result #1)
+   [{"fullId": "abc123", "name": "客厅吸顶灯", "capabilities": ["switch", "switchLevel"], ...}]
 
-7. Agent → Context Manager
-   add_device(id="abc123", name="客厅吸顶灯", room="living room")
+6. Claude → MCP Server (Tool Call #2)
+   execute_commands(device_id="abc123", commands=[{capability: "switch", command: "on"}])
+   ✓ 跳过 interpret_command（明确命令）
 
-8. Claude → MCP Server (Tool Call #2)
-   execute_commands(device_id="abc123", commands=[...on...])
-
-9. User Input #2 → Agent
-   "把它调到50%"
-
-10. Agent → Context Manager
-    find_device_by_reference("它") → DeviceMemory(id="abc123")
-
-11. Claude → MCP Server (Tool Call #3)
-    execute_commands(device_id="abc123", commands=[...setLevel(50)...])
-    ✓ 无需搜索，使用缓存的 device_id
+7. Response to User
+   "已打开客厅吸顶灯"
 ```
+
+**场景 2**: 用户说 "让灯光柔和一些"（模糊命令）
+
+```
+1. User Input → Agent
+   "让灯光柔和一些"
+
+2. Agent → DeviceControlPlanner
+   parse_control_request("让灯光柔和一些")
+   → DeviceControlPlan(
+       device_query="灯光 柔和一些",
+       command_text="让灯光柔和一些",
+       is_multi_device=False,
+       device_count=1,
+       requires_interpret=True  ← 需要解释
+     )
+
+3. Claude → MCP Server (Tool Call #1)
+   search_devices(query="灯光")
+
+4. MCP → Claude (Result #1)
+   [{"fullId": "abc123", "capabilities": ["switch", "switchLevel"], ...}]
+
+5. Claude → MCP Server (Tool Call #2)
+   interpret_command(
+     user_input="柔和一些",
+     device_capabilities=["switch", "switchLevel"]
+   )
+
+6. MCP → Claude (Result #2 - via intent_mapper)
+   {
+     "intent": "DECREASE_BRIGHTNESS",
+     "capability": "switchLevel",
+     "command": "setLevel",
+     "arguments": [40],
+     "confidence": 1.0
+   }
+
+7. Claude → MCP Server (Tool Call #3)
+   execute_commands(device_id="abc123", commands=[{
+     capability: "switchLevel",
+     command: "setLevel",
+     arguments: [40]
+   }])
+
+8. Response to User
+   "已将灯光调整到 40%（柔和亮度）"
+```
+
+**关键变化**:
+- ❌ 移除: Intent recognition step (不再需要判断 CONTROL/QUERY/ANALYSIS)
+- ✅ 简化: 统一的 3 步工作流
+- ✅ 保留: Context Manager 的设备缓存功能（场景外使用）
 
 ---
 
@@ -293,52 +364,91 @@ class ConversationContext:
 
 ---
 
-### 2. Workflow Planner (`planner.py`)
+### 2. Device Control Planner (`planner.py`)
 
-**职责**: 意图识别和工作流规划
+**职责**: 设备控制请求解析和工作流建议（简化版）
 
 **核心类**:
 
 ```python
-class Intent(Enum):
-    CONTROL = "control"
-    QUERY = "query"
-    ANALYSIS = "analysis"
-    DISCOVERY = "discovery"
-    CONDITIONAL_CONTROL = "conditional_control"
+@dataclass
+class DeviceControlPlan:
+    """设备控制计划"""
+    device_query: str         # 设备搜索查询
+    command_text: str         # 命令文本
+    is_multi_device: bool     # 是否多设备操作
+    device_count: int         # 估计设备数量
+    requires_interpret: bool  # 是否需要命令解释
 
-class WorkflowPlanner:
-    def plan(user_input, context) -> Workflow
+class DeviceControlPlanner:
+    """设备控制规划器 - 专注于设备控制的简化版本"""
+    def parse_control_request(user_input: str) -> DeviceControlPlan
+    def should_use_batch(device_count: int) -> bool
 ```
 
-**意图识别规则**:
+**核心功能**:
 
-| 意图 | 识别模式 | 示例 |
-|------|---------|------|
-| CONTROL | 打开/关闭/设置/调整 | "打开客厅的灯" |
-| QUERY | 是多少/怎么样/现在/？/吗 | "客厅温度是多少？" |
-| ANALYSIS | 过去/历史/统计/平均 | "过去一周的平均温度" |
-| DISCOVERY | 有哪些/列出/显示所有 | "我有哪些设备？" |
-| CONDITIONAL_CONTROL | 如果...那么/当...时 | "如果温度>26度，打开空调" |
+1. **设备查询提取**
+   ```python
+   # "打开客厅的灯" → "客厅 灯"
+   # "让卧室的灯柔和一些" → "卧室 灯 柔和一些"
+   device_query, command_text = planner._split_device_and_command(user_input)
+   ```
 
-**工作流优化示例**:
+2. **多设备检测**
+   ```python
+   # "打开客厅的灯和卧室的空调" → (True, 2)
+   # "打开客厅的灯" → (False, 1)
+   is_multi, count = planner._detect_multi_device(user_input)
+   ```
+
+3. **命令解释需求判断**
+   ```python
+   # "打开" → False (明确命令)
+   # "柔和一些" → True (需要解释)
+   requires_interpret = planner._needs_interpretation(command_text)
+   ```
+
+**工作流建议示例**:
 
 ```python
-# 场景 1: 无缓存 → 需要搜索
-plan("打开客厅的灯", context={})
-# Workflow:
-#   1. search_devices("客厅 灯")
-#   2. execute_commands(device_id)
+# 场景 1: 单设备 + 明确命令
+plan = planner.parse_control_request("打开客厅的灯")
+# DeviceControlPlan(
+#   device_query="客厅 灯",
+#   command_text="打开客厅的灯",
+#   is_multi_device=False,
+#   device_count=1,
+#   requires_interpret=False
+# )
+# 建议工作流: search_devices → execute_commands
 
-# 场景 2: 有缓存 → 跳过搜索
-plan("把它打开", context={"cached_device": {...}})
-# Workflow:
-#   1. execute_commands(device_id)  # 节省 1 次 API 调用
+# 场景 2: 单设备 + 模糊命令
+plan = planner.parse_control_request("让灯光柔和一些")
+# DeviceControlPlan(
+#   device_query="灯光 柔和一些",
+#   command_text="让灯光柔和一些",
+#   is_multi_device=False,
+#   device_count=1,
+#   requires_interpret=True
+# )
+# 建议工作流: search_devices → interpret_command → execute_commands
 
-# 场景 3: 有新鲜状态缓存 → 无需 API 调用
-plan("现在状态如何？", context={"has_fresh_status": True})
-# Workflow: []  # 0 次 API 调用
+# 场景 3: 多设备操作
+plan = planner.parse_control_request("打开客厅的灯和卧室的空调")
+# DeviceControlPlan(
+#   device_query=...,
+#   is_multi_device=True,
+#   device_count=2,
+#   requires_interpret=False
+# )
+# 建议工作流: parallel search_devices → parallel execute_commands
 ```
+
+**移除的功能** (简化前):
+- ❌ Intent enum (CONTROL/QUERY/ANALYSIS/DISCOVERY/CONDITIONAL)
+- ❌ IntentRecognizer - 所有请求都是设备控制
+- ❌ WorkflowPlanner - 统一使用 3 步工作流
 
 ---
 
@@ -427,65 +537,66 @@ except Exception as e:
 
 ### 测试覆盖
 
-**文件**: `test/test_agent.py`
+**文件**: `test/test_device_control_planner.py`
 
-✅ **7 个测试场景全部通过**:
+✅ **5 个测试场景全部通过**:
 
-1. **test_intent_recognition** (9/9)
-   - 验证 5 种意图识别准确率 100%
-
-2. **test_device_query_extraction** (3/4)
+1. **test_device_query_extraction** (4/4)
    - 从自然语言提取设备查询
+   - "打开客厅的灯" → "客厅 灯"
+   - "让卧室的灯柔和一些" → "卧室 灯 柔和一些"
 
-3. **test_workflow_planning** (6 场景)
-   - 控制意图 (无缓存/有缓存)
-   - 查询意图 (无缓存/有新鲜缓存)
-   - 发现意图
-   - 分析意图
+2. **test_multi_device_detection** (4 场景)
+   - 单设备检测: "打开客厅的灯" → (False, 1)
+   - 多设备检测: "打开客厅的灯和卧室的空调" → (True, 2)
+   - 3设备检测: "打开客厅的灯，关闭卧室的空调，锁上前门" → (True, 3)
+   - 批处理决策: 4+ 设备 → use batch_execute_commands
 
-4. **test_context_management** (7 turns)
-   - 设备添加和缓存
-   - 代词引用 ("它" → 设备)
-   - 状态缓存
-   - 房间上下文
-   - 房间推断
+3. **test_command_interpretation_check** (7/7)
+   - 明确命令不需要解释: "打开客厅的灯" → False
+   - 模糊命令需要解释: "让灯光柔和一些" → True
+   - 包含数字的命令不需要解释: "把灯调到50%" → False
 
-5. **test_multi_device_detection**
-   - 单设备 vs 多设备检测
-   - 并行 vs 批处理决策
+4. **test_complete_parsing** (3 场景)
+   - 单设备 + 明确命令
+   - 单设备 + 模糊命令
+   - 多设备 + 明确命令
 
-6. **test_error_handling**
-   - 6 种错误类型处理
-   - Fallback 策略验证
-   - 用户消息生成
+5. **test_workflow_recommendation**
+   - 场景1: 单设备 + 明确命令 → 2步工作流
+   - 场景2: 单设备 + 模糊命令 → 3步工作流
+   - 场景3: 多设备(2-3个) → 并行执行
+   - 场景4: 多设备(4+个) → 批处理执行
 
-7. **test_workflow_cache_optimization**
-   - 证明缓存可减少 API 调用
-   - Turn 1: 2 步 (search + execute)
-   - Turn 2: 1 步 (execute only)
-   - Turn 3: 1 步 (get_status)
-   - Turn 4: 0 步 (cached status)
+**额外测试**: `test/test_context_manager.py` 和 `test/test_error_handler.py` 测试上下文管理和错误处理功能（保持不变）
 
 ### 运行测试
 
 ```bash
-python test/test_agent.py
+python test/test_device_control_planner.py
 ```
 
 **输出**:
 ```
 ============================================================
-✅ 所有测试通过！
+简化版设备控制规划器测试套件
+(专注于设备控制，无意图分类)
 ============================================================
 
 验证的能力:
-  ✓ 意图识别 (CONTROL/QUERY/ANALYSIS/DISCOVERY/CONDITIONAL)
   ✓ 设备查询提取
-  ✓ 工作流规划 (6种场景)
-  ✓ 上下文管理 (设备缓存、状态缓存、房间推断)
   ✓ 多设备操作检测
-  ✓ 错误处理与降级
-  ✓ 缓存优化 (减少 API 调用)
+  ✓ 命令解释需求判断
+  ✓ 完整请求解析
+  ✓ 工作流建议
+
+专注点:
+  • 所有请求都是设备控制
+  • 无需意图分类 (CONTROL/QUERY/ANALYSIS)
+  • 使用 intent_mapper 解析模糊命令
+  • 简化的工作流规划
+============================================================
+✅ 所有测试通过！
 ============================================================
 ```
 
@@ -579,115 +690,148 @@ python examples/agent_example.py
 
 ## 文件清单
 
-### Agent 核心文件
+### Agent 核心文件 (简化后)
 
 ```
 src/agent/
-├── __init__.py              # 包初始化
-├── client.py                # 主 Agent 客户端 (260 行)
+├── __init__.py              # 包初始化 (导出 DeviceControlPlanner)
+├── client.py                # 主 Agent 客户端 (260 行) - 可选
 ├── context_manager.py       # 上下文管理器 (280 行)
-├── planner.py               # 工作流规划器 (380 行)
+├── planner.py               # 设备控制规划器 (142 行) ⬇ -238 行
 ├── error_handler.py         # 错误处理器 (280 行)
-└── prompts.py               # 系统提示词 (180 行)
+└── prompts.py               # 系统提示词 (113 行) ⬇ -67 行
 
-Total: ~1380 行核心代码
+Total: ~1075 行核心代码 (简化前: 1380 行)
+减少: 305 行 (-22%)
 ```
 
-### 测试和示例
+**主要变化**:
+- `planner.py`: 从 380 行减少到 142 行（移除 Intent、IntentRecognizer、WorkflowPlanner）
+- `prompts.py`: 从 180 行减少到 113 行（移除 QUERY/ANALYSIS 相关提示词）
+
+### 测试文件
 
 ```
 test/
-└── test_agent.py            # 完整测试套件 (550 行)
-
-examples/
-└── agent_example.py         # 使用示例 (200 行)
+├── test_device_control_planner.py  # 设备控制规划器测试 (262 行) - 新增
+├── test_context_manager.py         # 上下文管理器测试 (保留)
+└── test_error_handler.py            # 错误处理器测试 (保留)
 ```
 
 ### 文档
 
 ```
 solution/
-├── 02-agent-planning.md     # 需求文档 (原始)
-└── 06-agent-implementation.md  # 本文档 (实现总结)
+├── 02-agent-planning.md            # 原始需求文档
+├── 05-intent-mapper.md             # Intent Mapper 实现文档
+└── 06-agent-implementation.md      # 本文档 (简化后的 Agent 实现)
 ```
 
 ---
 
 ## 与文档要求的对应关系
 
-### 02-agent-planning.md 要求 → 实现
+### 02-agent-planning.md 要求 → 简化后实现
 
-| 文档章节 | 要求 | 实现文件 | 状态 |
-|---------|-----|---------|------|
-| 系统架构设计 → 三层架构 | Context/Planning/Execution | prompts.py, planner.py, client.py | ✅ |
-| Prompt Engineering | System Prompt + Tool Descriptions | prompts.py (AGENT_SYSTEM_PROMPT) | ✅ |
-| 决策树设计 | Intent 分类 + Workflow 规划 | planner.py (IntentRecognizer, WorkflowPlanner) | ✅ |
-| 上下文感知规划 | Short-Term Memory | context_manager.py (ConversationContext) | ✅ |
-| 并行与串行执行 | 智能决策 | planner.py (detect_multi_device_operation) | ✅ |
-| 错误处理与恢复 | Fallback 策略 | error_handler.py (ErrorHandler, FallbackStrategy) | ✅ |
-| 性能优化 | Token 减少、缓存 | client.py (prompt caching) + context_manager.py | ✅ |
-| 实施检查清单 | 8 项要求 | 全部实现 | ✅ 8/8 |
+| 文档章节 | 原始要求 | 简化后实现 | 状态 |
+|---------|---------|----------|------|
+| 系统架构设计 → 三层架构 | Context/Planning/Execution | prompts.py, planner.py, client.py | ✅ 简化 |
+| Prompt Engineering | System Prompt + Tool Descriptions | prompts.py (AGENT_SYSTEM_PROMPT - 设备控制专用) | ✅ |
+| 决策树设计 | Intent 分类 + Workflow 规划 | ❌ 移除 (所有请求都是设备控制) | ✅ 简化 |
+| 设备控制规划 | - | planner.py (DeviceControlPlanner) | ✅ 新增 |
+| 上下文感知规划 | Short-Term Memory | context_manager.py (ConversationContext) | ✅ 保留 |
+| 并行与串行执行 | 智能决策 | planner.py (should_use_batch) | ✅ 保留 |
+| 错误处理与恢复 | Fallback 策略 | error_handler.py (ErrorHandler) | ✅ 保留 |
+| 性能优化 | Token 减少、缓存 | client.py + context_manager.py | ✅ 保留 |
+| 实施检查清单 | 8 项要求 | 简化为 7 项 | ✅ 7/7 |
+
+**简化说明**:
+- ❌ **移除**: Intent enum、IntentRecognizer、WorkflowPlanner（-238 行代码）
+- ✅ **新增**: DeviceControlPlanner 专注于设备控制解析
+- ✅ **保留**: Context Manager、Error Handler 核心功能不变
+- ✅ **简化**: System Prompt 专注于设备控制工作流
 
 ---
 
 ## 总结
 
-### 🎯 核心成就
+### 🎯 核心成就（简化后）
 
-1. **完整实现三层架构**
-   - Context Layer: 可缓存的系统提示词
-   - Planning Layer: 智能意图识别和工作流规划
-   - Execution Layer: 高效的工具编排
+1. **简化的三层架构**
+   - Context Layer: 可缓存的系统提示词（设备控制专用）
+   - Planning Layer: 轻量级设备控制规划（DeviceControlPlanner）
+   - Execution Layer: 统一的 3 步工作流（search → interpret → execute）
 
-2. **智能上下文管理**
-   - 设备缓存减少 50% 搜索调用
-   - 状态缓存减少重复查询
-   - 代词引用自动解析
+2. **专注的设备控制规划**
+   - ✅ 设备查询提取（从自然语言中提取设备信息）
+   - ✅ 多设备检测（并行 vs 批处理决策）
+   - ✅ 命令解释需求判断（明确 vs 模糊命令）
+   - ❌ 移除不必要的意图分类（所有请求都是设备控制）
 
-3. **强大的错误处理**
-   - 6 种错误类型
-   - 3 种降级策略
-   - 用户友好的错误消息
+3. **保留的核心功能**
+   - 智能上下文管理（设备缓存、状态缓存、代词引用）
+   - 强大的错误处理（6 种错误类型、降级策略）
+   - 性能优化（Prompt Caching、上下文缓存）
 
 4. **全面的测试覆盖**
-   - 7 个测试场景
+   - 5 个设备控制规划测试场景
    - 所有测试通过
-   - 验证所有核心能力
+   - 验证简化后的核心能力
 
-5. **显著的性能优化**
-   - 43% API 调用减少
-   - 97.5% System Prompt token 减少 (通过缓存)
-   - 总体 token 节省 ~60-80%
+5. **显著的代码简化**
+   - 减少 305 行代码（-22%）
+   - planner.py: 380 行 → 142 行（-238 行）
+   - prompts.py: 180 行 → 113 行（-67 行）
+   - 更易维护和理解
 
-### 📊 数据指标
+### 📊 数据指标（简化前后对比）
 
-- **代码行数**: ~1380 行核心代码
-- **测试覆盖**: 7/7 场景通过
-- **文档完成度**: 100%
-- **需求完成度**: 8/8 检查项 (100%)
-- **性能提升**: API 调用 -43%, Token -60~80%
+| 指标 | 简化前 | 简化后 | 变化 |
+|-----|-------|-------|------|
+| **核心代码行数** | ~1380 行 | ~1075 行 | -305 行 (-22%) |
+| **意图类型** | 5 种 | 0 种 | 专注设备控制 |
+| **工作流模式** | 9 种 | 1 种统一流程 | 简化 89% |
+| **测试场景** | 7 个 | 5 个 | 专注核心功能 |
+| **文档完成度** | 100% | 100% | 保持 |
+| **需求完成度** | 8/8 检查项 | 7/7 检查项 | 100% |
+
+### 🔄 简化决策
+
+**为什么简化**:
+- 所有用户请求都是设备控制命令
+- 无需复杂的意图分类（CONTROL/QUERY/ANALYSIS/DISCOVERY/CONDITIONAL）
+- MCP server 的 `interpret_command` 工具已处理模糊命令解析
+- 减少不必要的复杂度，提高可维护性
+
+**保留的核心价值**:
+- ✅ 设备查询提取和多设备检测
+- ✅ 命令解释需求智能判断
+- ✅ 上下文管理和设备缓存
+- ✅ 错误处理和降级策略
+- ✅ 性能优化（Prompt Caching）
 
 ### 🚀 下一步
 
-Agent 核心实现已完成，可以：
+简化的 Agent 系统已完成，可以：
 
 1. **集成到生产环境**
    - 连接实际的 MCP 服务器
-   - 部署为 API 服务
-   - 添加用户认证
+   - 与 Claude API 集成
+   - 部署为智能家居控制服务
 
-2. **扩展功能**
-   - 添加更多意图类型
-   - 支持复杂的多步骤场景
-   - 集成 intent_mapper (已实现)
+2. **功能增强**
+   - 集成 intent_mapper 处理更多模糊命令
+   - 支持更复杂的多设备场景
+   - 优化设备搜索算法
 
-3. **优化增强**
-   - 添加 Long-Term Memory
-   - 实现用户偏好学习
-   - 多语言支持
+3. **优化提升**
+   - 添加用户偏好学习
+   - 多语言支持（English/中文）
+   - 性能监控和日志
 
 ---
 
-**文档版本**: 1.0
+**文档版本**: 2.0 (简化版)
 **作者**: Claude (SmartThings MCP Expert)
 **最后更新**: 2025-11-14
+**变更**: 从复杂的5意图系统简化为专注设备控制的单一工作流系统
